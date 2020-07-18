@@ -12,18 +12,19 @@ import random
 import os
 import cv2
 import numpy as np
+import math
 
 from SamplePreprocessor import preprocessor
-
+import tensorflow as tf
 
 class FilePaths:
     """ Filenames and paths to data """
-    fnCharList = '../model/charList.txt'
-    fnWordCharList = '../model/wordCharList.txt'
-    fnCorpus = '../data/corpus.txt'
-    fnAccuracy = '../model/accuracy.txt'
-    fnTrain = '../data/'
-    fnInfer = '../data/testImage1.png'  ## path to recognize the single image
+    fnCharList = os.path.dirname(__file__)+'/../model/charList.txt'
+    fnWordCharList = os.path.dirname(__file__)+'/../model/wordCharList.txt'
+    fnCorpus = os.path.dirname(__file__)+'/../data/corpus.txt'
+    fnAccuracy = os.path.dirname(__file__)+'/../model/accuracy.txt'
+    fnTrain = os.path.join(os.path.dirname(__file__), "../data")
+    fnInfer = os.path.dirname(__file__)+'/../data/testImage1.png'  ## path to recognize the single image
 
 
 class Sample:
@@ -48,13 +49,16 @@ class DataLoader:
     def __init__(self, filePath, batchSize, imgSize, maxTextLen, load_aug=True):
         "loader for dataset at given location, preprocess images and text according to parameters"
 
-        assert filePath[-1] == '/'
+        # assert filePath[-1] == '/'
 
         self.dataAugmentation = True # False
         self.currIdx = 0
         self.batchSize = batchSize
         self.imgSize = imgSize
         self.samples = []
+
+        self.gtTexts = None
+        self.imgs = None
 
         f = open("../data/" + 'lines.txt')
         chars = set()
@@ -66,6 +70,7 @@ class DataLoader:
                 continue
 
             lineSplit = line.strip().split(' ')  ## remove the space and split with ' '
+            # print(lineSplit)
             # assert len(lineSplit) >= 9
 
             # filename: part1-part2-part3 --> part1/part1-part2/part1-part2-part3.png
@@ -73,10 +78,10 @@ class DataLoader:
             #print(fileNameSplit)
             fileName = filePath + 'lines/' + fileNameSplit[0] + '/' + fileNameSplit[0] + '-' + fileNameSplit[1] + '/' +\
                        lineSplit[0] + '.png'
-
+            fileName = os.path.join(filePath, "lines", fileNameSplit[0], fileNameSplit[0] + '-' + fileNameSplit[1], lineSplit[0] + '.png')
             # GT text are columns starting at 10
             # see the lines.txt and check where the GT text starts, in this case it is 10
-            gtText_list = lineSplit[9].split('|')
+            gtText_list = lineSplit[-1].split('|')
             gtText = self.truncateLabel(' '.join(gtText_list), maxTextLen)
             chars = chars.union(set(list(gtText)))  ## taking the unique characters present
 
@@ -156,3 +161,76 @@ class DataLoader:
             for i in batchRange]
         self.currIdx += self.batchSize
         return Batch(gtTexts, imgs)
+
+    def tf_gen(self,):
+        if self.gtTexts == None:
+            self._getData()
+        n_batches = len(self.gtTexts) // self.batchSize
+        for idx in range(n_batches):
+            batch_X = self.imgs[idx * self.batchSize:(idx + 1) * self.batchSize]
+            batch_y = self.gtTexts[idx * self.batchSize:(idx + 1) * self.batchSize]
+            yield (np.array(batch_X), np.array(batch_y))
+
+    def _getData(self,):
+        self.gtTexts = []
+        self.imgs = []
+        for sample in self.samples:
+            self.gtTexts.append(sample.gtText)
+            self.imgs.append(preprocessor(cv2.imread(sample.filePath, cv2.IMREAD_GRAYSCALE), self.imgSize))
+
+    def getTfDataSet(self):
+        if self.gtTexts == None:
+            self._getData()
+        imgs = np.array(self.imgs)
+        img_tensor = tf.data.Dataset.from_tensor_slices(imgs)
+        text_tensor =tf.data.Dataset.from_tensor_slices(self.gtTexts)
+        return tf.data.Dataset.zip((img_tensor, text_tensor))
+    
+    def getTfSequence(self,):
+        if self.gtTexts == None:
+            self._getData()
+        return IAMSequence(self.imgs, self.gtTexts, self.batchSize, self.charList)
+
+    def tensorBatchtoSparse(self, batch):
+        """ Convert ground truth texts into sparse tensor for ctc_loss """
+        indices = []
+        values = []
+        shape = [len(batch), 0]  # Last entry must be max(labelList[i])
+        # Go over all texts
+        for (batchElement, texts) in enumerate(batch):
+            # Convert to string of label (i.e. class-ids)
+            # print(texts)
+            # labelStr = []
+            # for c in texts:
+            #     print(c, '|', end='')
+            #     labelStr.append(self.charList.index(c))
+            # print(' ')
+            labelStr = [self.charList.index(c) for c in str(texts, 'utf-8')]
+            # Sparse tensor must have size of max. label-string
+            if len(labelStr) > shape[1]:
+                shape[1] = len(labelStr)
+            # Put each label into sparse tensor
+            for (i, label) in enumerate(labelStr):
+                indices.append([batchElement, i])
+                values.append(label)
+        return (indices, values, shape)
+
+if __name__ == "__main__":
+    from tf2Custom import DecoderType, Model
+    loader = DataLoader(FilePaths.fnTrain, Model.batchSize,
+                    Model.imgSize, Model.maxTextLen, load_aug=True)
+    loader.trainSet()
+    batch = loader.getNext()
+    # print(batch.gtTexts)
+    # print(len(batch.gtTexts))
+    # print(toSparse(batch.gtTexts, loader.charList))
+    # dataset = loader.getTfSequence()
+    # for i in range(2):
+    #     batch = dataset.__getitem__(i)
+    #     print(batch)
+    #     print(batch[1].shape)
+
+    dataset = tf.data.Dataset.from_generator(loader.tf_gen, output_types=(tf.float64, tf.string))
+    # dataset = loader.getTfDataSet()
+    for batch in dataset.take(2):
+        print(batch)

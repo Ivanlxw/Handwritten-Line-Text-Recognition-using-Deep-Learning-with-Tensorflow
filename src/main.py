@@ -39,15 +39,15 @@ def train(model, loader):
 
         # Validate
         charErrorRate, addressAccuracy, wordErrorRate = validate(model, loader)
-        cer_summary = tf.Summary(value=[tf.Summary.Value(
+        cer_summary = tf.compat.v1.Summary(value=[tf.compat.v1.Summary.Value(
             tag='charErrorRate', simple_value=charErrorRate)])  # Tensorboard: Track charErrorRate
         # Tensorboard: Add cer_summary to writer
         model.writer.add_summary(cer_summary, epoch)
-        address_summary = tf.Summary(value=[tf.Summary.Value(
+        address_summary = tf.compat.v1.Summary(value=[tf.compat.v1.Summary.Value(
             tag='addressAccuracy', simple_value=addressAccuracy)])  # Tensorboard: Track addressAccuracy
         # Tensorboard: Add address_summary to writer
         model.writer.add_summary(address_summary, epoch)
-        wer_summary = tf.Summary(value=[tf.Summary.Value(
+        wer_summary = tf.compat.v1.Summary(value=[tf.compat.v1.Summary.Value(
             tag='wordErrorRate', simple_value=wordErrorRate)])  # Tensorboard: Track wordErrorRate
         # Tensorboard: Add wer_summary to writer
         model.writer.add_summary(wer_summary, epoch)
@@ -136,8 +136,8 @@ def infer(model, fnImg):
     batch = Batch(None, imgs)
     recognized = model.inferBatch(batch)  # recognize text
 
-    print("Without Correction", recognized[0])
-    print("With Correction", correct_sentence(recognized[0]))
+    print("Without Correction: ", recognized[0])
+    print("With Correction: ", correct_sentence(recognized[0]))
     return recognized[0]
 
 
@@ -151,6 +151,8 @@ def main():
         "--validate", help="validate the neural network", action="store_true")
     parser.add_argument(
         "--wordbeamsearch", help="use word beam search instead of best path decoding", action="store_true")
+    parser.add_argument(
+        "--infer_fp", help="filepath to the inference image", required=False, type=str)
     args = parser.parse_args()
 
     decoderType = DecoderType.BestPath
@@ -175,8 +177,8 @@ def main():
     else:
         print(open(FilePaths.fnAccuracy).read())
         model = Model(open(FilePaths.fnCharList).read(),
-                      decoderType, mustRestore=False)
-        infer(model, FilePaths.fnInfer)
+                      decoderType, mustRestore=True)
+        infer(model, args.infer_fp)
 
 
 def infer_by_web(path, option):

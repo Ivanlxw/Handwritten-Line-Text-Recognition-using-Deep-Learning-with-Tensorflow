@@ -2,6 +2,10 @@
 ### Description
 Use Convolutional Recurrent Neural Network to recognize the Handwritten line text image without pre segmentation into words or characters. Use CTC loss Function to train.
 
+### New
+- Migrated model architecture to tensorflow 2. Author's original codes are mostly left untouched.
+- `cd src/ && python tf2Train.py`
+
 ### Why Deep Learning?
 ![Why Deep Learning](images/WhyDeepLearning.png?raw=true "Why Deep Learning")
 > Deep Learning self extracts features with a deep neural networks and classify itself. Compare to traditional Algorithms it performance increase with Amount of Data.
